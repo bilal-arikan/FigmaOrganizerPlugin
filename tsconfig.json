@@ -9,8 +9,15 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "types": ["@figma/plugin-typings"]
+    "outDir": "./dist",
+    "rootDir": ".",
+    "types": ["@figma/plugin-typings", "node"]
   },
   "include": ["**/*.ts"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules"],
+  "ts-node": {
+    "compilerOptions": {
+      "module": "commonjs"
+    }
+  }
 }
