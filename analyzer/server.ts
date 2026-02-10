@@ -29,10 +29,21 @@ const server = http.createServer(async (req, res) => {
 
     req.on("end", async () => {
       try {
-        const jsonData = JSON.parse(body);
+        let jsonData: any;
+        let enabledModules: any;
+
+        const parsed = JSON.parse(body);
+        
+        // Support both old format (direct JSON) and new format (with data/enabledModules)
+        if (parsed.data) {
+          jsonData = parsed.data;
+          enabledModules = parsed.enabledModules;
+        } else {
+          jsonData = parsed;
+        }
 
         // Analyze the JSON
-        const results = analyzeFile(jsonData);
+        const results = analyzeFile(jsonData, enabledModules);
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(

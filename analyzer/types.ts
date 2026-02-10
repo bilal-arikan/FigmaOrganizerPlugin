@@ -3,11 +3,55 @@
  * FigmaOutput.json analiz sonuçları için tipler
  */
 
+// ============ MODULAR ANALYZER SYSTEM ============
+
+/**
+ * Base analyzer interface
+ */
+export interface IAnalyzer {
+  name: string;
+  enabled: boolean;
+  analyze(jsonData: any): AnalysisModuleResult;
+}
+
+/**
+ * Her analyzer module'ün döndüreceği sonuç
+ */
+export interface AnalysisModuleResult {
+  moduleName: string;
+  enabled: boolean;
+  candidatesCount: number;
+  candidates: any[];
+  summary?: {
+    [key: string]: any;
+  };
+}
+
+/**
+ * Safe Area Module
+ */
+export interface SafeAreaCandidate {
+  id: string;
+  name: string;
+  path: string;
+  type: string;
+  reason: string;
+  priority: "high" | "medium" | "low";
+  recommendation: string;
+  issues: string[];
+}
+
+// ============ LEGACY TYPES (Backward Compatibility) ============
+
 export interface AnalysisResult {
   componentCandidates: ComponentCandidate[];
   renameCandidates: RenameCandidate[];
   layoutCandidates: LayoutCandidate[];
   summary: AnalysisSummary;
+  // Yeni modular sonuçlar
+  modules?: {
+    [moduleName: string]: AnalysisModuleResult;
+  };
 }
 
 export interface ComponentCandidate {
@@ -77,10 +121,18 @@ export interface AnalysisSummary {
   groupCount: number;
   componentCount: number;
   textCount: number;
-  componentCandidatesCount: number;
-  renameCandidatesCount: number;
-  layoutCandidatesCount: number;
   estimatedAutomationSavings: string;
+  // Modular system summary
+  modulesSummary?: {
+    [moduleName: string]: {
+      enabled: boolean;
+      candidatesCount: number;
+    };
+  };
+  // Legacy properties (for backward compatibility)
+  componentCandidatesCount?: number;
+  renameCandidatesCount?: number;
+  layoutCandidatesCount?: number;
 }
 
 export interface NodeData {
