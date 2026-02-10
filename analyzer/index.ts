@@ -31,7 +31,8 @@ const createRenameAnalyzer = (): IAnalyzer => {
   const analyzeNameIssues = (name: string): string[] => {
     const issues: string[] = [];
     if (name.includes(" ")) issues.push("contains_spaces");
-    if (/[!@#$%^&*()\-+\[\]{};:'"<>,.?/\\|`~]/.test(name)) issues.push("contains_special_chars");
+    if (/[^a-z0-9_\- ]/i.test(name)) issues.push("contains_special_chars");
+    if (/[^a-z0-9_-]/i.test(name)) issues.push("invalid_characters");
     if (name.length > 50) issues.push("too_long");
     return issues;
   };
@@ -42,7 +43,9 @@ const createRenameAnalyzer = (): IAnalyzer => {
     analyze: (jsonData: any): AnalysisModuleResult => {
       const candidates: any[] = [];
       nameOccurrences.clear();
-      collectAllNames(jsonData);
+      if (jsonData.document) collectAllNames(jsonData.document);
+      else if (Array.isArray(jsonData)) jsonData.forEach((item: any) => collectAllNames(item));
+      else collectAllNames(jsonData);
 
       nameOccurrences.forEach((nodeIds, name) => {
         const issues = analyzeNameIssues(name);
@@ -52,7 +55,10 @@ const createRenameAnalyzer = (): IAnalyzer => {
             id: nodeIds[0],
             paths: nodeIds,
             issues,
-            suggestedName: name.toLowerCase().replace(/\s+/g, "-"),
+            suggestedName: name
+              .toLowerCase()
+              .replace(/\s+/g, "-")
+              .replace(/[^a-z0-9_-]/g, ""),
             priority: "medium",
           });
         }
@@ -87,15 +93,109 @@ const createComponentAnalyzer = (): IAnalyzer => {
 
 // LayoutAnalyzer implementation
 const createLayoutAnalyzer = (): IAnalyzer => {
+  const candidates: any[] = [];
+
+  const analyzeSpacing = (positions: number[]) => {
+    if (positions.length < 2) {
+      return { hasConsistentSpacing: false, estimatedSpacing: 0, spacingVariance: 0 };
+    }
+    const gaps = [];
+    for (let i = 1; i < positions.length; i++) {
+      gaps.push(positions[i] - positions[i - 1]);
+    }
+    const avgGap = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+    const variance = Math.sqrt(gaps.reduce((a, b) => a + Math.pow(b - avgGap, 2), 0) / gaps.length);
+    return {
+      hasConsistentSpacing: variance < avgGap * 0.2,
+      estimatedSpacing: Math.round(avgGap),
+      spacingVariance: Math.round(variance),
+    };
+  };
+
+  const analyzeFrame = (frame: any, path: string) => {
+    if (!Array.isArray(frame.children) || frame.children.length < 2) return;
+
+    const childBounds = frame.children
+      .filter((c: any) => c.absoluteBoundingBox)
+      .map((c: any) => ({ ...c, bounds: c.absoluteBoundingBox }));
+
+    if (childBounds.length < 2) return;
+
+    // Detect arrangement
+    const yPositions = childBounds.map((c: any) => c.bounds.y);
+    const xPositions = childBounds.map((c: any) => c.bounds.x);
+    const yVariance = Math.max(...yPositions) - Math.min(...yPositions);
+    const xVariance = Math.max(...xPositions) - Math.min(...xPositions);
+
+    let arrangement = "mixed";
+    if (yVariance < 5) arrangement = "horizontal";
+    else if (xVariance < 5) arrangement = "vertical";
+
+    // Analyze spacing based on arrangement
+    const sortedPositions = arrangement === "horizontal" ? xPositions.sort((a, b) => a - b) : yPositions.sort((a, b) => a - b);
+    const spacingData = analyzeSpacing(sortedPositions);
+
+    // Calculate confidence
+    let confidence: "high" | "medium" | "low" = "low";
+    if (spacingData.hasConsistentSpacing && childBounds.length >= 3) {
+      confidence = "high";
+    } else if (spacingData.hasConsistentSpacing || childBounds.length >= 2) {
+      confidence = "medium";
+    }
+
+    // Determine reason
+    let reason = "Has consistent spacing pattern";
+    if (!spacingData.hasConsistentSpacing) {
+      reason = "Multiple children could benefit from auto layout";
+    }
+
+    candidates.push({
+      id: frame.id,
+      name: frame.name || "Unnamed Frame",
+      path,
+      type: frame.type,
+      reason,
+      childrenCount: childBounds.length,
+      arrangement,
+      spacingPattern: {
+        hasConsistentSpacing: spacingData.hasConsistentSpacing,
+        estimatedSpacing: spacingData.estimatedSpacing,
+        spacingVariance: spacingData.spacingVariance,
+        alignmentType: "mixed",
+      },
+      confidence,
+      suggestedConfig: {
+        mode: arrangement === "horizontal" ? "HORIZONTAL" : arrangement === "vertical" ? "VERTICAL" : "HORIZONTAL",
+        spacing: spacingData.estimatedSpacing,
+        alignment: "center",
+      },
+    });
+  };
+
+  const traverse = (node: any, path: string = ""): void => {
+    if (!node) return;
+    if (node.type === "FRAME" || node.type === "GROUP") {
+      analyzeFrame(node, path);
+    }
+    if (Array.isArray(node.children)) {
+      node.children.forEach((child: any) => traverse(child, path + "/" + (child.name || child.id)));
+    }
+  };
+
   return {
     name: "layout",
     enabled: true,
     analyze: (jsonData: any): AnalysisModuleResult => {
+      candidates.length = 0;
+      if (jsonData.document) traverse(jsonData.document);
+      else if (Array.isArray(jsonData)) jsonData.forEach((item: any) => traverse(item));
+      else traverse(jsonData);
+
       return {
         moduleName: "layout",
         enabled: true,
-        candidatesCount: 0,
-        candidates: [],
+        candidatesCount: candidates.length,
+        candidates,
       };
     },
   };
